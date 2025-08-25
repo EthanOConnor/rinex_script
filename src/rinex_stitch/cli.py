@@ -147,6 +147,153 @@ def parse_rinex_file(path: Path) -> RinexFile:
     return RinexFile(path=path, header_lines=header, version=ver, epoch_blocks=epoch_blocks)
 
 
+# ----- Header utilities -----
+
+def _label_index(header: List[str], label: str) -> Optional[int]:
+    for i, ln in enumerate(header):
+        if label in ln:
+            return i
+    return None
+
+
+def _content_for_label(line: str, label: str) -> str:
+    idx = line.find(label)
+    if idx >= 0:
+        return line[:idx].rstrip()
+    return line[:60].rstrip()
+
+
+def _make_header_line(content: str, label: str) -> str:
+    content = content[:60]
+    return f"{content:<60}{label}\n"
+
+
+@dataclass
+class SessionHeader:
+    observer: Optional[str] = None
+    agency: Optional[str] = None
+    ant_type: Optional[str] = None
+    ant_serial: Optional[str] = None
+    dH: Optional[float] = None
+    dE: Optional[float] = None
+    dN: Optional[float] = None
+
+
+def _extract_session_defaults(header: List[str]) -> SessionHeader:
+    sh = SessionHeader()
+    i = _label_index(header, "OBSERVER / AGENCY")
+    if i is not None:
+        content = _content_for_label(header[i], "OBSERVER / AGENCY")
+        sh.observer = content[:20].strip() or None
+        sh.agency = content[20:].strip() or None
+    i_type = _label_index(header, "ANTENNA: TYPE")
+    if i_type is not None:
+        content = _content_for_label(header[i_type], "ANTENNA: TYPE")
+        sh.ant_type = content.strip() or None
+    else:
+        i_old = _label_index(header, "ANT # / TYPE")
+        if i_old is not None:
+            content = _content_for_label(header[i_old], "ANT # / TYPE")
+            parts = content.split()
+            if parts:
+                sh.ant_serial = parts[0]
+                if len(parts) > 1:
+                    sh.ant_type = " ".join(parts[1:])
+    i_serial = _label_index(header, "ANTENNA: SERIAL NO")
+    if i_serial is not None:
+        content = _content_for_label(header[i_serial], "ANTENNA: SERIAL NO")
+        sh.ant_serial = content.strip() or sh.ant_serial
+    i_dhen = _label_index(header, "ANTENNA: DELTA H/E/N")
+    if i_dhen is not None:
+        content = _content_for_label(header[i_dhen], "ANTENNA: DELTA H/E/N")
+        parts = content.split()
+        try:
+            if len(parts) >= 1:
+                sh.dH = float(parts[0])
+            if len(parts) >= 2:
+                sh.dE = float(parts[1])
+            if len(parts) >= 3:
+                sh.dN = float(parts[2])
+        except ValueError:
+            pass
+    return sh
+
+
+def _prompt(default: Optional[str], prompt_text: str) -> Optional[str]:
+    try:
+        val = input(f"{prompt_text} [{default or ''}]: ").strip()
+        return default if val == "" else val
+    except (EOFError, KeyboardInterrupt):
+        return default
+
+
+def _prompt_float(default: Optional[float], prompt_text: str) -> Optional[float]:
+    while True:
+        sdef = "" if default is None else str(default)
+        try:
+            val = input(f"{prompt_text} [{sdef}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            return default
+        if val == "":
+            return default
+        try:
+            return float(val)
+        except ValueError:
+            print("Please enter a number.")
+
+
+def interactive_update_header(orig: List[str]) -> List[str]:
+    header = orig[:]
+    defaults = _extract_session_defaults(header)
+    print("-- Verify session info (blank to keep) --")
+    observer = _prompt(defaults.observer, "Observer")
+    agency = _prompt(defaults.agency, "Agency/Company")
+    ant_type = _prompt(defaults.ant_type, "Antenna Type")
+    ant_serial = _prompt(defaults.ant_serial, "Antenna Serial")
+    dH = _prompt_float(defaults.dH, "ARP Height (dH, m)")
+    dE = _prompt_float(defaults.dE, "ARP East (dE, m)")
+    dN = _prompt_float(defaults.dN, "ARP North (dN, m)")
+
+    idx = _label_index(header, "OBSERVER / AGENCY")
+    if idx is not None and (observer is not None or agency is not None):
+        obs = observer or ""
+        ag = agency or ""
+        content = f"{obs:<20}{ag:<40}"[:60]
+        header[idx] = _make_header_line(content, "OBSERVER / AGENCY")
+
+    idx = _label_index(header, "ANTENNA: TYPE")
+    if idx is not None and (ant_type is not None):
+        header[idx] = _make_header_line(ant_type or "", "ANTENNA: TYPE")
+    else:
+        idx_old = _label_index(header, "ANT # / TYPE")
+        if idx_old is not None and (ant_type is not None or ant_serial is not None):
+            serial = ant_serial or ""
+            atype = ant_type or ""
+            content = f"{serial} {atype}".strip()
+            header[idx_old] = _make_header_line(content, "ANT # / TYPE")
+
+    idx = _label_index(header, "ANTENNA: SERIAL NO")
+    if idx is not None and ant_serial is not None:
+        header[idx] = _make_header_line(ant_serial or "", "ANTENNA: SERIAL NO")
+
+    idx = _label_index(header, "ANTENNA: DELTA H/E/N")
+    if idx is not None and (dH is not None or dE is not None or dN is not None):
+        h = defaults.dH if dH is None else dH
+        e = defaults.dE if dE is None else dE
+        n = defaults.dN if dN is None else dN
+        parts: List[str] = []
+        if h is not None:
+            parts.append(f"{h:14.4f}".strip())
+        if e is not None:
+            parts.append(f"{e:14.4f}".strip())
+        if n is not None:
+            parts.append(f"{n:14.4f}".strip())
+        content = " ".join(parts)
+        header[idx] = _make_header_line(content, "ANTENNA: DELTA H/E/N")
+
+    return header
+
+
 def detect_interval_seconds(blocks: List[EpochBlock]) -> float:
     dts = []
     for a, b in zip(blocks, blocks[1:]):
@@ -317,6 +464,7 @@ def build_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
         ),
     )
     p.add_argument("--dry-run", action="store_true", help="Plan only; do not write files")
+    p.add_argument("--verify-header", action="store_true", help="Interactively verify and update session header fields (Observer, Agency, Antenna, ARP)")
     p.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
     return p.parse_args(argv)
 
@@ -365,6 +513,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         interval = float(args.interval)
         logging.info("Using provided interval: %.3f s", interval)
 
+    # Optionally verify/update session header fields once (applied to all outputs)
+    updated_header_template: Optional[List[str]] = None
+    if args.verify_header:
+        base_header = parsed[0].header_lines
+        updated_header_template = interactive_update_header(base_header)
+
     # Split within files
     per_file_segments: List[Segment] = []
     for rf in parsed:
@@ -372,7 +526,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         if len(splits) > 1:
             logging.info("Split %s into %d segments due to gaps", rf.path.name, len(splits))
         for i, seg_blocks in enumerate(splits, start=1):
-            per_file_segments.append(Segment(header=rf.header_lines, source_files=[rf.path], blocks=seg_blocks))
+            hdr = updated_header_template if updated_header_template is not None else rf.header_lines
+            per_file_segments.append(Segment(header=hdr, source_files=[rf.path], blocks=seg_blocks))
             if len(splits) > 1:
                 logging.debug("  Segment %d: %s -> %s (%d epochs)", i, _fmt_ts(seg_blocks[0].time), _fmt_ts(seg_blocks[-1].time), len(seg_blocks))
 

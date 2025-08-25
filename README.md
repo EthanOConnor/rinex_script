@@ -30,6 +30,7 @@ Usage
   - `--interval SECONDS` override sampling interval (auto-detect by default)
   - `--tolerance SECONDS` time tolerance when detecting gaps/adjacency (default: 0.1)
   - `--no-merge` disable cross-file merging
+  - `--verify-header` interactively verify session header fields (Observer, Agency, Antenna Type/Serial, ARP H/E/N) and apply to outputs
   - `--dry-run` print planned actions without writing files
   - `--log-level LEVEL` set logging level (INFO, DEBUG, etc.)
   - `--name-template TEMPLATE` output filename template using placeholders `{stem}`, `{start}`, `{end}` with optional strftime, e.g. `{start:%Y%m%dT%H%M%S}`. Default: `{stem}_{start:%Y%m%dT%H%M%S}_{end:%Y%m%dT%H%M%S}.rnx`.
@@ -41,6 +42,8 @@ Examples
   - `rinex-stitch day1.obs day2.obs --interval 5 --output-dir out`
 - Plan actions without writing:
   - `rinex-stitch data/*.rnx --dry-run --log-level DEBUG`
+• Verify header interactively and write:
+  - `rinex-stitch *.rnx --verify-header --output-dir out`
 - Custom output naming (include station code and date):
   - `rinex-stitch *.rnx --name-template "{stem}_{start:%Y%m%d}_{end:%Y%m%d}.rnx"`
 
