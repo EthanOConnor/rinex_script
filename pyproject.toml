@@ -1,0 +1,24 @@
+[project]
+name = "rinex-stitch"
+version = "0.1.0"
+description = "Split and merge RINEX observation files at epoch gaps/boundaries"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Proprietary"}
+authors = [{name = "Your Name"}]
+dependencies = []
+
+[project.optional-dependencies]
+rich = ["rich>=13.7.0"]
+georinex = ["georinex>=1.16.1", "xarray", "numpy"]
+
+[project.scripts]
+rinex-stitch = "rinex_stitch.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
