@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  lint-and-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install linters and build tools
+        run: |
+          python -m pip install -U pip
+          python -m pip install ruff black build
+      - name: Ruff check
+        run: ruff check .
+      - name: Black check
+        run: black --check .
+      - name: Build package
+        run: python -m build
+      - name: Smoke test install
+        run: |
+          python -m pip install dist/*.whl
+          python -m rinex_stitch --help
+

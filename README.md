@@ -32,6 +32,7 @@ Usage
   - `--no-merge` disable cross-file merging
   - `--dry-run` print planned actions without writing files
   - `--log-level LEVEL` set logging level (INFO, DEBUG, etc.)
+  - `--name-template TEMPLATE` output filename template using placeholders `{stem}`, `{start}`, `{end}` with optional strftime, e.g. `{start:%Y%m%dT%H%M%S}`. Default: `{stem}_{start:%Y%m%dT%H%M%S}_{end:%Y%m%dT%H%M%S}.rnx`.
 
 Examples
 - Split by gaps only (auto-detect interval):
@@ -40,6 +41,8 @@ Examples
   - `rinex-stitch day1.obs day2.obs --interval 5 --output-dir out`
 - Plan actions without writing:
   - `rinex-stitch data/*.rnx --dry-run --log-level DEBUG`
+- Custom output naming (include station code and date):
+  - `rinex-stitch *.rnx --name-template "{stem}_{start:%Y%m%d}_{end:%Y%m%d}.rnx"`
 
 Cross‑Platform Notes
 - Windows PowerShell and cmd are supported. If `rinex-stitch` isn’t found on PATH after install, use the module form: `python -m rinex_stitch ...` (or `py -m rinex_stitch ...`).
@@ -68,8 +71,8 @@ Developer Guide
 - Run the CLI during development:
   - `rinex-stitch --help` or `python -m rinex_stitch --help`
 - Linting/formatting (optional suggestions):
-  - Ruff: `python -m pip install ruff && ruff check src`
-  - Black: `python -m pip install black && black src`
+  - Ruff: `python -m pip install ruff && ruff check .`
+  - Black: `python -m pip install black && black .`
 - Build a wheel/sdist (optional):
   - `python -m pip install build`
   - `python -m build`
@@ -90,4 +93,3 @@ Optional Libraries
 Limitations
 - This tool focuses on RINEX observation files (O-files) and does not parse or interpret observation values—only epoch boundaries and raw block content.
 - Extremely irregular files may benefit from explicitly setting `--interval`.
-

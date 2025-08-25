@@ -248,10 +248,44 @@ def _fmt_ts(dt: datetime) -> str:
     return dt.strftime("%Y%m%dT%H%M%S")
 
 
-def write_segment(seg: Segment, out_dir: Path, name_hint: Optional[str] = None, dry_run: bool = False) -> Path:
+NAME_TEMPLATE_DEFAULT = "{stem}_{start:%Y%m%dT%H%M%S}_{end:%Y%m%dT%H%M%S}.rnx"
+
+
+def _render_name_template(template: str, stem: str, start: datetime, end: datetime) -> str:
+    # Support placeholders: {stem}, {start}, {end} with optional strftime, e.g. {start:%Y%m%d}
+    def repl(match: re.Match[str]) -> str:
+        key = match.group(1)
+        fmt = match.group(2)
+        if key == "stem":
+            return stem
+        if key == "start":
+            return start.strftime(fmt or "%Y%m%dT%H%M%S")
+        if key == "end":
+            return end.strftime(fmt or "%Y%m%dT%H%M%S")
+        return match.group(0)
+
+    pattern = re.compile(r"\{(stem|start|end)(?::([^}]+))?\}")
+    name = pattern.sub(repl, template)
+    # Basic sanitization
+    bad = [os.sep]
+    if os.altsep:
+        bad.append(os.altsep)
+    for ch in bad:
+        name = name.replace(ch, "_")
+    name = name.strip().replace(" ", "_")
+    return name
+
+
+def write_segment(
+    seg: Segment,
+    out_dir: Path,
+    name_hint: Optional[str] = None,
+    dry_run: bool = False,
+    name_template: str = NAME_TEMPLATE_DEFAULT,
+) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
     hint = name_hint or _common_stem(seg.source_files)
-    fname = f"{hint}_{_fmt_ts(seg.start)}_{_fmt_ts(seg.end)}.rnx"
+    fname = _render_name_template(name_template, hint, seg.start, seg.end)
     out_path = out_dir / fname
     if dry_run:
         return out_path
@@ -274,6 +308,14 @@ def build_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--interval", type=float, default=None, help="Sampling interval in seconds (auto-detect by default)")
     p.add_argument("--tolerance", type=float, default=0.1, help="Tolerance in seconds for gap/adjacency detection")
     p.add_argument("--no-merge", action="store_true", help="Disable cross-file merging")
+    p.add_argument(
+        "--name-template",
+        default=NAME_TEMPLATE_DEFAULT,
+        help=(
+            "Output filename template with placeholders {stem}, {start}, {end}; "
+            "use strftime like {start:%Y%m%dT%H%M%S}"
+        ),
+    )
     p.add_argument("--dry-run", action="store_true", help="Plan only; do not write files")
     p.add_argument("--log-level", default="INFO", help="Logging level (DEBUG, INFO, WARNING, ERROR)")
     return p.parse_args(argv)
@@ -353,7 +395,13 @@ def main(argv: Optional[List[str]] = None) -> int:
     written: List[Path] = []
     for seg in final_segments:
         hint = _common_stem(seg.source_files)
-        out_path = write_segment(seg, out_dir, hint, dry_run=args.dry_run)
+        out_path = write_segment(
+            seg,
+            out_dir,
+            hint,
+            dry_run=args.dry_run,
+            name_template=args.name_template,
+        )
         if args.dry_run:
             logging.info("Would write: %s (%s -> %s, %d epochs)", out_path.name, _fmt_ts(seg.start), _fmt_ts(seg.end), len(seg.blocks))
         else:
