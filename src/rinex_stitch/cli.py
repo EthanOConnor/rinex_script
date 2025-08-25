@@ -327,13 +327,32 @@ def split_blocks_by_gaps(blocks: List[EpochBlock], interval: float, tolerance: f
     return segments
 
 
+def _header_label(line: str) -> str:
+    # Label occupies columns 61-80 in RINEX headers
+    return line[60:].strip()
+
+
+IGNORE_HEADER_LABELS = {
+    "PGM / RUN BY / DATE",
+    "TIME OF FIRST OBS",
+    "TIME OF LAST OBS",
+}
+
+
+def _normalized_header(header: List[str]) -> List[str]:
+    norm: List[str] = []
+    for ln in header:
+        label = _header_label(ln)
+        if label in IGNORE_HEADER_LABELS:
+            continue
+        # Normalize trailing whitespace in content area
+        content = ln[:60].rstrip()
+        norm.append(f"{content}|{label}")
+    return norm
+
+
 def headers_compatible(h1: List[str], h2: List[str]) -> bool:
-    if len(h1) != len(h2):
-        return False
-    for a, b in zip(h1, h2):
-        if a.rstrip() != b.rstrip():
-            return False
-    return True
+    return _normalized_header(h1) == _normalized_header(h2)
 
 
 @dataclass
