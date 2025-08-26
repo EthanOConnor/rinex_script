@@ -76,6 +76,10 @@ Developer Guide
 - Editable install with extras:
   - `python -m pip install -U pip setuptools wheel`
   - `python -m pip install -e .[rich,georinex]`
+- Pre-commit hooks (recommended):
+  - `python -m pip install -e .[dev]`
+  - `pre-commit install`
+  - Run on demand: `pre-commit run --all-files`
 - Run the CLI during development:
   - `rinex-stitch --help` or `python -m rinex_stitch --help`
 - Linting/formatting (optional suggestions):
