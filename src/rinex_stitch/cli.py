@@ -550,7 +550,7 @@ def build_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
         default=NAME_TEMPLATE_DEFAULT,
         help=(
             "Output filename template with placeholders {stem}, {start}, {end}; "
-            "use strftime like {start:%Y%m%dT%H%M%S}"
+            "use strftime like {start:%%Y%%m%%dT%%H%%M%%S}"
         ),
     )
     p.add_argument("--dry-run", action="store_true", help="Plan only; do not write files")
