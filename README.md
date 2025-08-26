@@ -29,6 +29,7 @@ Usage
   - `--output-dir OUT` directory for results (default: `out`)
   - `--interval SECONDS` override sampling interval (auto-detect by default)
   - `--tolerance SECONDS` time tolerance when detecting gaps/adjacency (default: 0.1)
+  - `--approx-pos-tol METERS` tolerance for comparing `APPROX POSITION XYZ` between files (default: 5.0 m)
   - `--no-merge` disable cross-file merging
   - `--verify-header` interactively verify session header fields (Observer, Agency, Antenna Type/Serial, ARP H/E/N) and apply to outputs
   - `--dry-run` print planned actions without writing files

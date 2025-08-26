@@ -356,7 +356,18 @@ def _normalized_header(header: List[str]) -> List[str]:
     return norm
 
 
-def headers_compatible(h1: List[str], h2: List[str]) -> bool:
+def _parse_xyz(val: str) -> Optional[Tuple[float, float, float]]:
+    try:
+        parts = val.split()
+        if len(parts) < 3:
+            return None
+        x, y, z = float(parts[0]), float(parts[1]), float(parts[2])
+        return x, y, z
+    except Exception:
+        return None
+
+
+def headers_compatible(h1: List[str], h2: List[str], approx_pos_tol: float = 5.0) -> bool:
     # Fast path: identical after normalization
     if _normalized_header(h1) == _normalized_header(h2):
         return True
@@ -384,12 +395,27 @@ def headers_compatible(h1: List[str], h2: List[str]) -> bool:
     ]
     for lbl in required:
         if lbl in m1 and lbl in m2:
-            if m1[lbl].strip() != m2[lbl].strip():
-                return False
+            if lbl == "APPROX POSITION XYZ":
+                v1 = _parse_xyz(m1[lbl])
+                v2 = _parse_xyz(m2[lbl])
+                if v1 and v2:
+                    dx = v1[0] - v2[0]
+                    dy = v1[1] - v2[1]
+                    dz = v1[2] - v2[2]
+                    dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+                    if dist > approx_pos_tol:
+                        return False
+                else:
+                    # Fall back to strict compare if parsing failed
+                    if m1[lbl].strip() != m2[lbl].strip():
+                        return False
+            else:
+                if m1[lbl].strip() != m2[lbl].strip():
+                    return False
     return True
 
 
-def headers_diff(h1: List[str], h2: List[str]) -> List[str]:
+def headers_diff(h1: List[str], h2: List[str], approx_pos_tol: float = 5.0) -> List[str]:
     def to_map(header: List[str]) -> dict[str, str]:
         m: dict[str, str] = {}
         for ln in header:
@@ -406,8 +432,22 @@ def headers_diff(h1: List[str], h2: List[str]) -> List[str]:
         if lbl in IGNORE_HEADER_LABELS:
             continue
         if lbl in m1 and lbl in m2:
-            if m1[lbl].strip() != m2[lbl].strip():
-                diffs.append(lbl)
+            if lbl == "APPROX POSITION XYZ":
+                v1 = _parse_xyz(m1[lbl])
+                v2 = _parse_xyz(m2[lbl])
+                if v1 and v2:
+                    dx = v1[0] - v2[0]
+                    dy = v1[1] - v2[1]
+                    dz = v1[2] - v2[2]
+                    dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+                    if dist > approx_pos_tol:
+                        diffs.append(f"{lbl} (Δ={dist:.3f} m)")
+                else:
+                    if m1[lbl].strip() != m2[lbl].strip():
+                        diffs.append(lbl)
+            else:
+                if m1[lbl].strip() != m2[lbl].strip():
+                    diffs.append(lbl)
     return diffs
 
 
@@ -426,7 +466,7 @@ class Segment:
         return self.blocks[-1].time
 
 
-def merge_adjacent_segments(segments: List[Segment], interval: float, tolerance: float) -> List[Segment]:
+def merge_adjacent_segments(segments: List[Segment], interval: float, tolerance: float, approx_pos_tol: float = 5.0) -> List[Segment]:
     if not segments:
         return []
     segments = sorted(segments, key=lambda s: s.start)
@@ -444,7 +484,7 @@ def merge_adjacent_segments(segments: List[Segment], interval: float, tolerance:
             gap,
             interval,
         )
-        if headers_compatible(cur.header, nxt.header) and (-tolerance <= gap <= interval + tolerance):
+        if headers_compatible(cur.header, nxt.header, approx_pos_tol) and (-tolerance <= gap <= interval + tolerance):
             # Also avoid duplicate epoch if exactly zero gap and same time
             blocks = cur.blocks.copy()
             if nxt.start == cur.end:
@@ -460,8 +500,8 @@ def merge_adjacent_segments(segments: List[Segment], interval: float, tolerance:
             )
             continue
         else:
-            if not headers_compatible(cur.header, nxt.header):
-                diffs = headers_diff(cur.header, nxt.header)
+            if not headers_compatible(cur.header, nxt.header, approx_pos_tol):
+                diffs = headers_diff(cur.header, nxt.header, approx_pos_tol)
                 if diffs:
                     logging.debug("Headers differ (not merging): %s", ", ".join(diffs))
             else:
@@ -544,6 +584,7 @@ def build_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--output-dir", default="out", help="Directory to write output files (default: out)")
     p.add_argument("--interval", type=float, default=None, help="Sampling interval in seconds (auto-detect by default)")
     p.add_argument("--tolerance", type=float, default=0.1, help="Tolerance in seconds for gap/adjacency detection")
+    p.add_argument("--approx-pos-tol", type=float, default=5.0, help="Tolerance in meters for 'APPROX POSITION XYZ' header comparison (default: 5.0)")
     p.add_argument("--no-merge", action="store_true", help="Disable cross-file merging")
     p.add_argument(
         "--name-template",
@@ -654,7 +695,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             logging.info("Cross-file merging disabled by flag")
     else:
         before = len(per_file_segments)
-        final_segments = merge_adjacent_segments(per_file_segments, interval, args.tolerance)
+        final_segments = merge_adjacent_segments(per_file_segments, interval, args.tolerance, args.approx_pos_tol)
         after = len(final_segments)
         if after < before:
             logging.info("Merged segments across files: %d -> %d", before, after)
