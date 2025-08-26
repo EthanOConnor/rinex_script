@@ -170,6 +170,19 @@ def _make_header_line(content: str, label: str) -> str:
     return f"{content:<60}{label}\n"
 
 
+def _replace_field_fixed(line: str, label: str, start: int, width: int, value: str) -> str:
+    """Replace a fixed-width field in the 1..60 content columns.
+
+    start is 1-based column index, width is the number of characters to occupy.
+    """
+    content = f"{line[:60]:<60}"  # ensure we have 60 cols
+    s0 = max(0, start - 1)
+    e0 = min(60, s0 + max(1, width))
+    pad = f"{value:<{e0 - s0}}"[: e0 - s0]
+    new_content = f"{content[:s0]}{pad}{content[e0:]}"
+    return _make_header_line(new_content, label)
+
+
 @dataclass
 class SessionHeader:
     marker_name: Optional[str] = None
@@ -201,7 +214,8 @@ def _extract_session_defaults(header: List[str]) -> SessionHeader:
     i_type = _label_index(header, "ANTENNA: TYPE")
     if i_type is not None:
         content = _content_for_label(header[i_type], "ANTENNA: TYPE")
-        sh.ant_type = content.strip() or None
+        # In RINEX 3, columns 1-20 contain the antenna type (radome follows in 21-40)
+        sh.ant_type = content[:20].strip() or None
     else:
         i_old = _label_index(header, "ANT # / TYPE")
         if i_old is not None:
@@ -317,18 +331,23 @@ def interactive_update_header(orig: List[str]) -> List[str]:
 
     idx = _label_index(header, "ANTENNA: TYPE")
     if idx is not None and (ant_type is not None):
-        header[idx] = _make_header_line(ant_type or "", "ANTENNA: TYPE")
+        # Replace only the antenna type field (cols 1-20), preserve radome
+        header[idx] = _replace_field_fixed(header[idx], "ANTENNA: TYPE", 1, 20, ant_type or "")
     else:
         idx_old = _label_index(header, "ANT # / TYPE")
         if idx_old is not None and (ant_type is not None or ant_serial is not None):
-            serial = ant_serial or ""
-            atype = ant_type or ""
-            content = f"{serial} {atype}".strip()
-            header[idx_old] = _make_header_line(content, "ANT # / TYPE")
+            # In RINEX 2, use two 20-char fields: number (1-20) and type (21-40)
+            line = header[idx_old]
+            if ant_serial is not None:
+                line = _replace_field_fixed(line, "ANT # / TYPE", 1, 20, ant_serial or "")
+            if ant_type is not None:
+                line = _replace_field_fixed(line, "ANT # / TYPE", 21, 20, ant_type or "")
+            header[idx_old] = line
 
     idx = _label_index(header, "ANTENNA: SERIAL NO")
     if idx is not None and ant_serial is not None:
-        header[idx] = _make_header_line(ant_serial or "", "ANTENNA: SERIAL NO")
+        # Use first 20 columns for serial, keep rest intact
+        header[idx] = _replace_field_fixed(header[idx], "ANTENNA: SERIAL NO", 1, 20, ant_serial or "")
 
     idx = _label_index(header, "ANTENNA: DELTA H/E/N")
     if idx is not None and (dH is not None or dE is not None or dN is not None):

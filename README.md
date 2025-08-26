@@ -31,7 +31,8 @@ Usage
   - `--tolerance SECONDS` time tolerance when detecting gaps/adjacency (default: 0.1)
   - `--approx-pos-tol METERS` tolerance for comparing `APPROX POSITION XYZ` between files (default: 5.0 m)
   - `--no-merge` disable cross-file merging
-  - `--verify-header` interactively verify session header fields (Marker Name/Number, Observer, Agency, Antenna Type/Serial, ARP H/E/N) and edit/add COMMENT lines; applied to all outputs
+- `--verify-header` interactively verify session header fields (Marker Name/Number, Observer, Agency, Antenna Type/Serial, ARP H/E/N) and edit/add COMMENT lines; applied to all outputs
+  - Antenna alignment: updates preserve RINEX column widths so downstream software reads antenna type correctly.
   - `--dry-run` print planned actions without writing files
   - `--log-level LEVEL` set logging level (INFO, DEBUG, etc.)
   - `--name-template TEMPLATE` output filename template using placeholders `{stem}`, `{start}`, `{end}` with optional strftime, e.g. `{start:%Y%m%dT%H%M%S}`. Default: `{stem}_{start:%Y%m%dT%H%M%S}_{end:%Y%m%dT%H%M%S}.rnx`.
