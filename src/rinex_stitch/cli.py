@@ -7,10 +7,12 @@ import os
 import re
 import sys
 from collections import Counter
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Iterator, List, Optional, Tuple
+from . import __version__
 
 
 @dataclass
@@ -336,6 +338,9 @@ IGNORE_HEADER_LABELS = {
     "PGM / RUN BY / DATE",
     "TIME OF FIRST OBS",
     "TIME OF LAST OBS",
+    "COMMENT",
+    "LEAP SECONDS",
+    "SYS / PHASE SHIFT",
 }
 
 
@@ -352,7 +357,58 @@ def _normalized_header(header: List[str]) -> List[str]:
 
 
 def headers_compatible(h1: List[str], h2: List[str]) -> bool:
-    return _normalized_header(h1) == _normalized_header(h2)
+    # Fast path: identical after normalization
+    if _normalized_header(h1) == _normalized_header(h2):
+        return True
+    # Otherwise, compare a subset of identity-critical labels
+    def to_map(header: List[str]) -> dict[str, str]:
+        m: dict[str, str] = {}
+        for ln in header:
+            label = _header_label(ln)
+            if label in IGNORE_HEADER_LABELS:
+                continue
+            m[label] = ln[:60].rstrip()
+        return m
+
+    m1, m2 = to_map(h1), to_map(h2)
+    required = [
+        "RINEX VERSION / TYPE",
+        "MARKER NAME",
+        "MARKER NUMBER",
+        "REC # / TYPE / VERS",
+        "ANTENNA: TYPE",
+        "ANTENNA: SERIAL NO",
+        "ANT # / TYPE",
+        "ANTENNA: DELTA H/E/N",
+        "APPROX POSITION XYZ",
+    ]
+    for lbl in required:
+        if lbl in m1 and lbl in m2:
+            if m1[lbl].strip() != m2[lbl].strip():
+                return False
+    return True
+
+
+def headers_diff(h1: List[str], h2: List[str]) -> List[str]:
+    def to_map(header: List[str]) -> dict[str, str]:
+        m: dict[str, str] = {}
+        for ln in header:
+            label = _header_label(ln)
+            if label in IGNORE_HEADER_LABELS:
+                continue
+            m[label] = ln[:60].rstrip()
+        return m
+
+    m1, m2 = to_map(h1), to_map(h2)
+    labels = set(m1.keys()) | set(m2.keys())
+    diffs: List[str] = []
+    for lbl in sorted(labels):
+        if lbl in IGNORE_HEADER_LABELS:
+            continue
+        if lbl in m1 and lbl in m2:
+            if m1[lbl].strip() != m2[lbl].strip():
+                diffs.append(lbl)
+    return diffs
 
 
 @dataclass
@@ -378,23 +434,38 @@ def merge_adjacent_segments(segments: List[Segment], interval: float, tolerance:
     cur = segments[0]
     for nxt in segments[1:]:
         # Merge if headers match and adjacency within tolerance
-        if headers_compatible(cur.header, nxt.header):
-            gap = (nxt.start - cur.end).total_seconds()
-            if 0 <= gap <= interval + tolerance:
-                # Also avoid duplicate epoch if exactly zero gap and same time
-                blocks = cur.blocks.copy()
-                if nxt.start == cur.end:
-                    # Drop first block of next if duplicate timestamp
-                    nxt_blocks = nxt.blocks[1:]
-                else:
-                    nxt_blocks = nxt.blocks
+        gap = (nxt.start - cur.end).total_seconds()
+        logging.debug(
+            "Merge check: %s [%s] -> %s [%s]; gap=%.3fs, interval=%.3fs",
+            cur.source_files[-1].name if cur.source_files else "?",
+            _fmt_ts(cur.end),
+            nxt.source_files[0].name if nxt.source_files else "?",
+            _fmt_ts(nxt.start),
+            gap,
+            interval,
+        )
+        if headers_compatible(cur.header, nxt.header) and (-tolerance <= gap <= interval + tolerance):
+            # Also avoid duplicate epoch if exactly zero gap and same time
+            blocks = cur.blocks.copy()
+            if nxt.start == cur.end:
+                # Drop first block of next if duplicate timestamp
+                nxt_blocks = nxt.blocks[1:]
+            else:
+                nxt_blocks = nxt.blocks
 
-                cur = Segment(
-                    header=cur.header,
-                    source_files=cur.source_files + nxt.source_files,
-                    blocks=blocks + nxt_blocks,
-                )
-                continue
+            cur = Segment(
+                header=cur.header,
+                source_files=cur.source_files + nxt.source_files,
+                blocks=blocks + nxt_blocks,
+            )
+            continue
+        else:
+            if not headers_compatible(cur.header, nxt.header):
+                diffs = headers_diff(cur.header, nxt.header)
+                if diffs:
+                    logging.debug("Headers differ (not merging): %s", ", ".join(diffs))
+            else:
+                logging.debug("Not merging due to non-adjacent timing (gap=%.3fs)", gap)
         merged.append(cur)
         cur = nxt
     merged.append(cur)
@@ -496,6 +567,31 @@ def setup_logging(level: str) -> None:
 def main(argv: Optional[List[str]] = None) -> int:
     args = build_cli(argv)
     setup_logging(args.log_level)
+    # Print version + git commit (if available)
+    try:
+        # Prefer git from working tree where package is located
+        pkg_dir = Path(__file__).resolve().parent
+        root = pkg_dir
+        git_sha = None
+        for _ in range(6):
+            if (root / ".git").exists():
+                try:
+                    git_sha = subprocess.check_output(
+                        ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+                        stderr=subprocess.DEVNULL,
+                    ).decode().strip()
+                except Exception:
+                    git_sha = None
+                break
+            if root.parent == root:
+                break
+            root = root.parent
+        if git_sha:
+            logging.info("rinex-stitch v%s (git %s)", __version__, git_sha)
+        else:
+            logging.info("rinex-stitch v%s", __version__)
+    except Exception:
+        logging.info("rinex-stitch v%s", __version__)
 
     input_paths: List[Path] = []
     for arg in args.inputs:

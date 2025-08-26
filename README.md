@@ -35,6 +35,10 @@ Usage
   - `--log-level LEVEL` set logging level (INFO, DEBUG, etc.)
   - `--name-template TEMPLATE` output filename template using placeholders `{stem}`, `{start}`, `{end}` with optional strftime, e.g. `{start:%Y%m%dT%H%M%S}`. Default: `{stem}_{start:%Y%m%dT%H%M%S}_{end:%Y%m%dT%H%M%S}.rnx`.
 
+Version and Debugging
+- On startup the tool logs its version and, when available, the current git commit short SHA (useful for editable installs from source).
+- For deeper insight into merge decisions, run with `--log-level DEBUG`. The tool logs per-pair merge checks, time gaps, and which header labels differed (after ignoring volatile fields like program/date and time-of-first/last).
+
 Examples
 - Split by gaps only (auto-detect interval):
   - `rinex-stitch day1.obs --output-dir out`
