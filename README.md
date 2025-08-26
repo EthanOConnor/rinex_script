@@ -51,6 +51,7 @@ Examples
   - `rinex-stitch *.rnx --verify-header --output-dir out`
 - Custom output naming (include station code and date):
   - `rinex-stitch *.rnx --name-template "{stem}_{start:%Y%m%d}_{end:%Y%m%d}.rnx"`
+  - Note: when using `--verify-header`, if you change MARKER NAME, the output filename stem uses the new marker name.
 
 Cross‑Platform Notes
 - Windows PowerShell and cmd are supported. If `rinex-stitch` isn’t found on PATH after install, use the module form: `python -m rinex_stitch ...` (or `py -m rinex_stitch ...`).

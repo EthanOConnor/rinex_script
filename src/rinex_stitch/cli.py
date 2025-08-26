@@ -649,6 +649,14 @@ def write_segment(
     return out_path
 
 
+def _marker_name_from_header(header: List[str]) -> Optional[str]:
+    idx = _label_index(header, "MARKER NAME")
+    if idx is None:
+        return None
+    name = _content_for_label(header[idx], "MARKER NAME").strip()
+    return name or None
+
+
 def build_cli(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Split and merge RINEX observation files at epoch gaps and boundaries.")
     p.add_argument("inputs", nargs="+", help="RINEX observation files (supports shell globs expanded by shell)")
@@ -776,7 +784,11 @@ def main(argv: Optional[List[str]] = None) -> int:
     out_dir = Path(args.output_dir)
     written: List[Path] = []
     for seg in final_segments:
-        hint = _common_stem(seg.source_files)
+        if args.verify_header:
+            mn = _marker_name_from_header(seg.header)
+            hint = mn if mn else _common_stem(seg.source_files)
+        else:
+            hint = _common_stem(seg.source_files)
         out_path = write_segment(
             seg,
             out_dir,
