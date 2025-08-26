@@ -172,6 +172,8 @@ def _make_header_line(content: str, label: str) -> str:
 
 @dataclass
 class SessionHeader:
+    marker_name: Optional[str] = None
+    marker_number: Optional[str] = None
     observer: Optional[str] = None
     agency: Optional[str] = None
     ant_type: Optional[str] = None
@@ -179,10 +181,18 @@ class SessionHeader:
     dH: Optional[float] = None
     dE: Optional[float] = None
     dN: Optional[float] = None
+    comments: List[str] | None = None
 
 
 def _extract_session_defaults(header: List[str]) -> SessionHeader:
     sh = SessionHeader()
+    # Marker name/number
+    i = _label_index(header, "MARKER NAME")
+    if i is not None:
+        sh.marker_name = _content_for_label(header[i], "MARKER NAME").strip() or None
+    i = _label_index(header, "MARKER NUMBER")
+    if i is not None:
+        sh.marker_number = _content_for_label(header[i], "MARKER NUMBER").strip() or None
     i = _label_index(header, "OBSERVER / AGENCY")
     if i is not None:
         content = _content_for_label(header[i], "OBSERVER / AGENCY")
@@ -218,6 +228,12 @@ def _extract_session_defaults(header: List[str]) -> SessionHeader:
                 sh.dN = float(parts[2])
         except ValueError:
             pass
+    # COMMENT lines
+    comments: List[str] = []
+    for ln in header:
+        if _header_label(ln) == "COMMENT":
+            comments.append(_content_for_label(ln, "COMMENT").rstrip())
+    sh.comments = comments or None
     return sh
 
 
@@ -248,6 +264,8 @@ def interactive_update_header(orig: List[str]) -> List[str]:
     header = orig[:]
     defaults = _extract_session_defaults(header)
     print("-- Verify session info (blank to keep) --")
+    marker_name = _prompt(defaults.marker_name, "Marker Name")
+    marker_number = _prompt(defaults.marker_number, "Marker Number")
     observer = _prompt(defaults.observer, "Observer")
     agency = _prompt(defaults.agency, "Agency/Company")
     ant_type = _prompt(defaults.ant_type, "Antenna Type")
@@ -255,6 +273,40 @@ def interactive_update_header(orig: List[str]) -> List[str]:
     dH = _prompt_float(defaults.dH, "ARP Height (dH, m)")
     dE = _prompt_float(defaults.dE, "ARP East (dE, m)")
     dN = _prompt_float(defaults.dN, "ARP North (dN, m)")
+
+    # Comment editing: prompt optional multi-line replace
+    def prompt_comments(current: List[str] | None) -> Optional[List[str]]:
+        cur_disp = "; ".join(current or [])
+        ans = _prompt("n", f"Edit COMMENT lines? (y/N) Current: {cur_disp}")
+        if not ans or ans.lower() != "y":
+            return None
+        print("Enter COMMENT lines, one per line. End with a single '.' on a line.")
+        new_comments: List[str] = []
+        while True:
+            try:
+                line = input().rstrip("\n")
+            except (EOFError, KeyboardInterrupt):
+                break
+            if line == ".":
+                break
+            new_comments.append(line)
+        return new_comments
+
+    new_comments = prompt_comments(defaults.comments)
+
+    # Utility: insert or replace label line
+    def insert_or_replace(label: str, content: str) -> None:
+        idx_local = _label_index(header, label)
+        line = _make_header_line(content, label)
+        if idx_local is not None:
+            header[idx_local] = line
+        else:
+            # insert before END OF HEADER
+            try:
+                end_idx = next(i for i, ln in enumerate(header) if END_OF_HEADER in ln)
+            except StopIteration:
+                end_idx = len(header)
+            header.insert(end_idx, line)
 
     idx = _label_index(header, "OBSERVER / AGENCY")
     if idx is not None and (observer is not None or agency is not None):
@@ -292,6 +344,25 @@ def interactive_update_header(orig: List[str]) -> List[str]:
             parts.append(f"{n:14.4f}".strip())
         content = " ".join(parts)
         header[idx] = _make_header_line(content, "ANTENNA: DELTA H/E/N")
+
+    # Update marker name/number (insert if missing)
+    if marker_name is not None:
+        insert_or_replace("MARKER NAME", marker_name or "")
+    if marker_number is not None:
+        insert_or_replace("MARKER NUMBER", marker_number or "")
+
+    # Replace COMMENT lines if requested
+    if new_comments is not None:
+        # Remove existing COMMENT lines
+        header = [ln for ln in header if _header_label(ln) != "COMMENT"]
+        # Insert new comments before END OF HEADER
+        try:
+            end_idx = next(i for i, ln in enumerate(header) if END_OF_HEADER in ln)
+        except StopIteration:
+            end_idx = len(header)
+        for c in new_comments:
+            header.insert(end_idx, _make_header_line(c, "COMMENT"))
+            end_idx += 1
 
     return header
 
